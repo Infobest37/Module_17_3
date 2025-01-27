@@ -4,6 +4,7 @@ from app.backend.db_depends import get_db
 # Аннотации, Модели БД и Pydantic.
 from typing import Annotated
 from app.models import *
+from app.schemas.task import CreateTask
 from app.schemas.user import CreateUser, UpdateUser
 # Функции работы с записями.
 from sqlalchemy import insert, select, update, delete
@@ -30,36 +31,42 @@ async def user_by_id(user_id: int,db: Annotated[Session, Depends(get_db)]):
     return result
 
 
-
-
 @router.post("/create")
-async def create_user(create_user: CreateUser, db: Annotated[Session, Depends(get_db)]):
-    existing_user = db.execute(select(User).where(create_user.username == User.username)).first()
+async def create_task(db: Annotated[Session, Depends(get_db)], create_task: CreateTask,
+        user_id: int
+):
+    # Проверяем, существует ли пользователь
+    existing_user = db.query(User).filter(user_id == User.id ).first()
 
-    if existing_user:
-        raise HTTPException(status_code=400, detail="User already exists")
+    if not existing_user:
+        raise HTTPException(status_code=404, detail="User was not found")
 
-    # Получаем все существующие id пользователей
-    existing_ids = db.scalars(select(User.id)).all()
-
-    # Находим первый доступный id
+    # Получаем все существующие id задач
+    existing_ids = db.scalars(select(Task.id)).all()
     new_id = 1
+
+    # Находим первый доступный id для новой задачи
     while new_id in existing_ids:
         new_id += 1
 
-    # Вставляем нового пользователя
-    db.execute(insert(User).values(id=new_id,  # Указываем новый id
-                                   username=create_user.username,
-                                   slug=slugify(create_user.username),
-                                   firstname=create_user.firstname,
-                                   lastname=create_user.lastname,
-                                   age=create_user.age))
+    # Создаем новую задачу, связывая ее с пользователем
+    db.execute(insert(Task).values(
+        id=new_id,  # Новый id задачи
+        title=create_task.title,
+        content=create_task.content,
+        priority=create_task.priority,
+        completed=False,  # Можно установить по умолчанию
+        user_id=user_id,  # Связываем с пользователем
+        slug=slugify(create_task.title)  # Предполагается, что slugify доступна
+    ))
+
     db.commit()
 
     return {
-        'status_code': status.HTTP_201_CREATED,
+        'status_code': 201,  # Код ответа для успешного создания
         'transaction': 'Successful'
     }
+
 
 @router.put("/update")
 async def update_user(db: Annotated[Session, Depends(get_db)], user_id: int, update_user: UpdateUser):
